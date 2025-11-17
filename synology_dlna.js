@@ -181,11 +181,6 @@
         var device = tree.device;
         var folder = tree.tree[tree.tree.length - 1];
 
-        // >>> ВСТАВКА ЛОГА ТУТ <<<
-        console.log('[SynoDLNA] OPEN FOLDER:', folder);
-        console.log('[SynoDLNA] FOLDER TITLE:', folder.title, 'ID:', folder.id);
-        // >>>>>>>>>>>>>>>>>>>>>>>>
-          
         this.drawLoading(Lampa.Lang.translate('loading'));
 
         var serviceURL = device.name + (device.name.endsWith('/') ? '' : '/') + 'ContentDirectory/control';
