@@ -176,52 +176,87 @@
       };
 
       this.displayFolder = function () {
-        var _this3 = this;
+    var _this3 = this;
 
-        var device = tree.device;
-        var folder = tree.tree[tree.tree.length - 1];
-        this.drawLoading(Lampa.Lang.translate('loading'));
+    var device = tree.device;
+    var folder = tree.tree[tree.tree.length - 1];
 
-        var serviceURL = device.name + (device.name.endsWith('/') ? '' : '/') + 'ContentDirectory/control';
-        if (serviceURL.indexOf('http') === -1) serviceURL = 'http://' + serviceURL;
+    this.drawLoading(Lampa.Lang.translate('loading'));
 
-        serviceURL = this.getProxyURL(serviceURL);
+    // Формируем URL сервиса ContentDirectory
+    var serviceURL = device.name + (device.name.endsWith('/') ? '' : '/') + 'ContentDirectory/control';
 
-        console.log('SynoDLNA', serviceURL);
+    // ЛОГИРУЕМ ВСЁ, что можно
+    console.log("=== SynoDLNA DEBUG START ===");
+    console.log("Server from settings:", device.name);
+    console.log("Raw service URL:", serviceURL);
+    console.log("Current folder object:", folder);
+    console.log("Folder ID to load:", folder.id);
 
-        var soapAction = '"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"';
-        var soapBody = `
-          <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                  <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
-                      <ObjectID>`+folder.id+`</ObjectID>
-                      <BrowseFlag>BrowseDirectChildren</BrowseFlag>
-                      <Filter>*</Filter>
-                      <StartingIndex>0</StartingIndex>
-                      <RequestedCount>1000</RequestedCount>
-                      <SortCriteria></SortCriteria>
-                  </u:Browse>
-              </s:Body>
-          </s:Envelope>`;
-        $.ajax({
-          url: serviceURL,
-          type: "POST",
-          dataType: "xml",
-          data: soapBody,
-          headers: {
-            "SOAPAction": soapAction,
-            "Content-Type": "text/xml"
-          },
-          success: function(response) {
-            var filesAndDirectories = _this3.parseXmlResponse(response.documentElement.outerHTML);
-            //console.log('SynoDLNA', filesAndDirectories);
-            _this3.drawFolder(filesAndDirectories);
-          },
-          error: function() {
-            console.log('SynoDLNA', "SOAP request failed");
-          }
-        });
-      };
+    if (serviceURL.indexOf('http') === -1) {
+        serviceURL = 'http://' + serviceURL;
+    }
+    console.log("Normalized service URL:", serviceURL);
+
+    // Применяем прокси (если есть)
+    serviceURL = this.getProxyURL(serviceURL);
+    console.log("Final service URL (after proxy):", serviceURL);
+
+    var soapAction = '"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"';
+
+    var soapBody = `
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+              <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+                  <ObjectID>`+folder.id+`</ObjectID>
+                  <BrowseFlag>BrowseDirectChildren</BrowseFlag>
+                  <Filter>*</Filter>
+                  <StartingIndex>0</StartingIndex>
+                  <RequestedCount>1000</RequestedCount>
+                  <SortCriteria></SortCriteria>
+              </u:Browse>
+          </s:Body>
+      </s:Envelope>`;
+
+    console.log("SOAP Action:", soapAction);
+    console.log("SOAP Body XML:", soapBody);
+    console.log("=== END OF REQUEST BUILD ===");
+
+    $.ajax({
+      url: serviceURL,
+      type: "POST",
+      dataType: "xml",
+      data: soapBody,
+      timeout: 5000, // чтобы быстрее увидеть ошибку
+      headers: {
+        "SOAPAction": soapAction,
+        "Content-Type": "text/xml"
+      },
+
+      success: function(response) {
+        console.log("SOAP SUCCESS RAW RESPONSE:", response);
+        var xmlText = response.documentElement.outerHTML;
+        console.log("SOAP SUCCESS XML STRING:", xmlText);
+
+        var filesAndDirectories = _this3.parseXmlResponse(xmlText);
+
+        console.log("Parsed DLNA items:", filesAndDirectories);
+
+        _this3.drawFolder(filesAndDirectories);
+      },
+
+      error: function(xhr, status, error) {
+        console.error("=== SOAP FAILED ===");
+        console.error("XHR:", xhr);
+        console.error("STATUS:", status);
+        console.error("ERROR:", error);
+        console.error("ServiceURL used:", serviceURL);
+        console.error("ObjectID used:", folder.id);
+        console.error("Full SOAP body:", soapBody);
+        console.error("=====================");
+      }
+    });
+};
 
       this.parseXmlResponse = function (xmlResponse) {
         var parser = new DOMParser();
