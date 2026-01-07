@@ -647,9 +647,18 @@
     }
     function getProxy$1() {
       if (Lampa.Storage.field("lmetorrentqBittorentProxy") === true) {
-        return 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/';
+        return 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/?url=';
       }
       return "";
+    }
+    function buildProxyUrl(proxy, targetUrl) {
+      if (!proxy) return targetUrl;
+      // Если прокси использует формат с параметром ?url=
+      if (proxy.includes('?url=')) {
+        return proxy + encodeURIComponent(targetUrl);
+      }
+      // Иначе просто конкатенируем
+      return proxy + targetUrl;
     }
     function getHeaders$3(type) {
       var headers = {};
@@ -675,8 +684,9 @@
         }
         var url = getUrl$1();
         var proxy = getProxy$1();
-        var loginUrl = "".concat(proxy).concat(url, "/api/v2/auth/login");
-        console.log('TDM Auth URL:', loginUrl);
+        var targetUrl = "".concat(url, "/api/v2/auth/login");
+        var loginUrl = buildProxyUrl(proxy, targetUrl);
+        console.log('TDM Auth URL:', loginUrl, 'Target URL:', targetUrl);
         $.ajax({
           url: loginUrl,
           method: "POST",
@@ -726,13 +736,19 @@
             errorMsg += " (HTTP ".concat(jqXHR.status, ")");
           }
           if (jqXHR.responseText) {
-            errorMsg += " - ".concat(jqXHR.responseText.substring(0, 100));
+            var responseText = jqXHR.responseText.substring(0, 200);
+            errorMsg += " - ".concat(responseText);
+            // Проверяем на DNS ошибку
+            if (responseText.includes('ENOTFOUND') || responseText.includes('getaddrinfo')) {
+              errorMsg += "\n\nПрокси не может разрешить домен. Возможные решения:\n1. Проверьте правильность адреса сервера\n2. Попробуйте использовать IP адрес вместо домена\n3. Отключите прокси, если сервер доступен напрямую";
+            }
           }
           console.error('TDM Auth error:', {
             status: jqXHR.status,
             statusText: textStatus,
             error: errorThrown,
-            responseText: jqXHR.responseText
+            responseText: jqXHR.responseText,
+            url: loginUrl
           });
           reject(new Error(errorMsg));
         });
@@ -742,8 +758,9 @@
       var _this = this;
       var url = getUrl$1();
       var proxy = getProxy$1();
-      var fullUrl = "".concat(proxy).concat(url, "/api/v2/sync/maindata");
-      console.log('TDM GetData URL:', fullUrl);
+      var targetUrl = "".concat(url, "/api/v2/sync/maindata");
+      var fullUrl = buildProxyUrl(proxy, targetUrl);
+      console.log('TDM GetData URL:', fullUrl, 'Target URL:', targetUrl);
       var settings = {
         url: fullUrl,
         method: "GET",
@@ -899,8 +916,10 @@
     function GetInfo$3() {
       var url = getUrl$1();
       var proxy = getProxy$1();
+      var targetUrl = "".concat(url, "/api/v2/sync/maindata");
+      var fullUrl = buildProxyUrl(proxy, targetUrl);
       var settings = {
-        url: "".concat(proxy).concat(url, "/api/v2/sync/maindata"),
+        url: fullUrl,
         method: "GET",
         timeout: 0,
         headers: getHeaders$3()
@@ -920,11 +939,20 @@
           if (jqXHR.status) {
             errorMsg += " (HTTP ".concat(jqXHR.status, ")");
           }
+          if (jqXHR.responseText) {
+            var responseText = jqXHR.responseText.substring(0, 200);
+            errorMsg += " - ".concat(responseText);
+            // Проверяем на DNS ошибку
+            if (responseText.includes('ENOTFOUND') || responseText.includes('getaddrinfo')) {
+              errorMsg += "\n\nПрокси не может разрешить домен. Попробуйте использовать IP адрес вместо домена.";
+            }
+          }
           console.error('TDM GetInfo error:', {
             status: jqXHR.status,
             statusText: textStatus,
             error: errorThrown,
-            url: settings.url
+            url: settings.url,
+            responseText: jqXHR.responseText
           });
           reject(new Error(errorMsg));
         });
@@ -935,8 +963,9 @@
         var url = getUrl$1();
         var proxy = getProxy$1();
         // First check qBittorrent version
+        var versionUrl = buildProxyUrl(proxy, "".concat(url, "/api/v2/app/version"));
         $.ajax({
-          url: "".concat(proxy).concat(url, "/api/v2/app/version"),
+          url: versionUrl,
           method: "GET",
           headers: getHeaders$3()
         }).then(function (version) {
@@ -950,8 +979,9 @@
 
           // Then send the command
           var deleteFiles = btn.deleteFiles ? "true" : "";
+          var commandUrl = buildProxyUrl(proxy, "".concat(url, "/api/v2/torrents/").concat(btn.action));
           return $.ajax({
-            url: "".concat(proxy).concat(url, "/api/v2/torrents/").concat(btn.action),
+            url: commandUrl,
             method: "POST",
             timeout: 0,
             headers: getHeaders$3("application/x-www-form-urlencoded"),
@@ -978,8 +1008,10 @@
       }
       var url = getUrl$1();
       var proxy = getProxy$1();
+      var targetUrl = "".concat(url, "/api/v2/torrents/add");
+      var fullUrl = buildProxyUrl(proxy, targetUrl);
       var settings = {
-        url: "".concat(proxy).concat(url, "/api/v2/torrents/add"),
+        url: fullUrl,
         method: "POST",
         timeout: 0,
         headers: getHeaders$3("application/x-www-form-urlencoded"),
@@ -1024,8 +1056,9 @@
               tagValue = Array.isArray(tags) ? tags.join(',') : tags;
               url = getUrl$1();
               proxy = getProxy$1();
+              var tagsUrl = buildProxyUrl(proxy, "".concat(url, "/api/v2/torrents/addTags"));
               return _context3.a(2, $.ajax({
-                url: "".concat(proxy).concat(url, "/api/v2/torrents/addTags"),
+                url: tagsUrl,
                 method: "POST",
                 timeout: 0,
                 headers: getHeaders$3("application/x-www-form-urlencoded"),
