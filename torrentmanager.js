@@ -2786,6 +2786,74 @@
       function send2qBittorrent(selectedTorrent, labels, dtype) {
         Qbittorent.SendTask(selectedTorrent, labels, dtype);
       }
+      // Функция отправки магнет ссылки в Telegram
+      function send2Telegram(selectedTorrent, labels, dtype) {
+        if (!selectedTorrent) {
+          Lampa.Bell.push({
+            text: 'Ошибка: Торрент не выбран'
+          });
+          return;
+        }
+        // Получаем магнет ссылку
+        var magnetLink = selectedTorrent.MagnetUri || selectedTorrent.Link;
+        if (!magnetLink) {
+          Lampa.Bell.push({
+            text: 'Ошибка: Магнет ссылка не найдена'
+          });
+          return;
+        }
+        // Получаем название фильма
+        var movieTitle = null;
+        try {
+          var activeMovie = Lampa.Activity.active().movie;
+          if (activeMovie) {
+            movieTitle = activeMovie.title || activeMovie.name || null;
+          }
+        } catch (e) {
+          console.log('Telegram: Не удалось получить название фильма');
+        }
+        // Настройки Telegram (можно вынести в настройки плагина)
+        var TELEGRAM_BOT_TOKEN = '8441157245:AAH2ciDkbEyoNo0bqsATxUbL3IOmUGXoTI0';
+        var TELEGRAM_CHAT_ID = '890726322';
+        // Формируем сообщение
+        var message = '🔗 Магнет ссылка';
+        if (movieTitle) {
+          message += '\n\n📽️ ' + movieTitle;
+        }
+        message += '\n\n' + magnetLink;
+        // Показываем уведомление
+        Lampa.Bell.push({
+          text: 'Отправка в Telegram...'
+        });
+        // Отправляем в Telegram
+        $.ajax({
+          url: 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage',
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message
+          }),
+          timeout: 10000
+        }).done(function(response) {
+          if (response.ok) {
+            Lampa.Bell.push({
+              text: '✅ Магнет ссылка отправлена в Telegram'
+            });
+            console.log('Telegram: Сообщение отправлено успешно');
+          } else {
+            Lampa.Bell.push({
+              text: '❌ Ошибка: ' + (response.description || 'Неизвестная ошибка')
+            });
+            console.error('Telegram: Ошибка отправки:', response);
+          }
+        }).fail(function(jqXHR, textStatus, errorThrown) {
+          Lampa.Bell.push({
+            text: '❌ Ошибка подключения к Telegram'
+          });
+          console.error('Telegram: Ошибка запроса:', textStatus, errorThrown);
+        });
+      }
       Lampa.Listener.follow('torrent', function (e) {
         if (e.type === 'onlong') {
           var _Lampa$Activity$activ, _Lampa$Activity$activ2, _Lampa$Activity$activ3;
@@ -2799,6 +2867,14 @@
             title: "<div class=\"btnTDdownload wait\">\n                            <svg class=\"btnTDdownload\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g id=\"SVGRepo_bgCarrier\" stroke-width=\"0\"></g><g id=\"SVGRepo_tracerCarrier\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g id=\"SVGRepo_iconCarrier\"> <path d=\"M8.5 7L8.5 14M8.5 14L11 11M8.5 14L6 11\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path> <path d=\"M15.5 7L15.5 14M15.5 14L18 11M15.5 14L13 11\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path> <path d=\"M18 17H12H6\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path> <path d=\"M2 12C2 7.28595 2 4.92893 3.46447 3.46447C4.92893 2 7.28595 2 12 2C16.714 2 19.0711 2 20.5355 3.46447C22 4.92893 22 7.28595 22 12C22 16.714 22 19.0711 20.5355 20.5355C19.0711 22 16.714 22 12 22C7.28595 22 4.92893 22 3.46447 20.5355C2 19.0711 2 16.714 2 12Z\" stroke=\"#ffffff\" stroke-width=\"1.5\"></path> </g></svg>\n                            qBittorrent</div>",
             send2app: send2qBittorrent,
             onSelect: onSelectApp
+          });
+          // Добавляем кнопку отправки в Telegram
+          e.menu.push({
+            title: "<div class=\"btnTDdownload wait\"><svg class=\"btnTDdownload\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" width=\"36\" height=\"36\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.23-.76.35-1.08.34-.36-.01-1.04-.2-1.53-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z\" fill=\"currentColor\"/></svg>Telegram</div>",
+            send2app: send2Telegram,
+            onSelect: function(a) {
+              a.send2app(selectedTorrent, null, null);
+            }
           });
         }
       });
@@ -2863,6 +2939,74 @@
       function send2qBittorrent(selectedTorrent, labels, dtype) {
         Qbittorent.SendTask(selectedTorrent, labels, dtype);
       }
+      // Функция отправки магнет ссылки в Telegram
+      function send2Telegram(selectedTorrent, labels, dtype) {
+        if (!selectedTorrent) {
+          Lampa.Bell.push({
+            text: 'Ошибка: Торрент не выбран'
+          });
+          return;
+        }
+        // Получаем магнет ссылку
+        var magnetLink = selectedTorrent.MagnetUri || selectedTorrent.Link;
+        if (!magnetLink) {
+          Lampa.Bell.push({
+            text: 'Ошибка: Магнет ссылка не найдена'
+          });
+          return;
+        }
+        // Получаем название фильма
+        var movieTitle = null;
+        try {
+          var activeMovie = Lampa.Activity.active().movie;
+          if (activeMovie) {
+            movieTitle = activeMovie.title || activeMovie.name || null;
+          }
+        } catch (e) {
+          console.log('Telegram: Не удалось получить название фильма');
+        }
+        // Настройки Telegram (можно вынести в настройки плагина)
+        var TELEGRAM_BOT_TOKEN = '8441157245:AAH2ciDkbEyoNo0bqsATxUbL3IOmUGXoTI0';
+        var TELEGRAM_CHAT_ID = '890726322';
+        // Формируем сообщение
+        var message = '🔗 Магнет ссылка';
+        if (movieTitle) {
+          message += '\n\n📽️ ' + movieTitle;
+        }
+        message += '\n\n' + magnetLink;
+        // Показываем уведомление
+        Lampa.Bell.push({
+          text: 'Отправка в Telegram...'
+        });
+        // Отправляем в Telegram
+        $.ajax({
+          url: 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage',
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message
+          }),
+          timeout: 10000
+        }).done(function(response) {
+          if (response.ok) {
+            Lampa.Bell.push({
+              text: '✅ Магнет ссылка отправлена в Telegram'
+            });
+            console.log('Telegram: Сообщение отправлено успешно');
+          } else {
+            Lampa.Bell.push({
+              text: '❌ Ошибка: ' + (response.description || 'Неизвестная ошибка')
+            });
+            console.error('Telegram: Ошибка отправки:', response);
+          }
+        }).fail(function(jqXHR, textStatus, errorThrown) {
+          Lampa.Bell.push({
+            text: '❌ Ошибка подключения к Telegram'
+          });
+          console.error('Telegram: Ошибка запроса:', textStatus, errorThrown);
+        });
+      }
       Lampa.Listener.follow('torrent', function (e) {
         if (e.type === 'onlong') {
           var _Lampa$Activity$activ, _Lampa$Activity$activ2, _Lampa$Activity$activ3;
@@ -2876,6 +3020,14 @@
             title: "<div class=\"btnTDdownload wait\">\n                            <svg class=\"btnTDdownload\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g id=\"SVGRepo_bgCarrier\" stroke-width=\"0\"></g><g id=\"SVGRepo_tracerCarrier\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g id=\"SVGRepo_iconCarrier\"> <path d=\"M8.5 7L8.5 14M8.5 14L11 11M8.5 14L6 11\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path> <path d=\"M15.5 7L15.5 14M15.5 14L18 11M15.5 14L13 11\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path> <path d=\"M18 17H12H6\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path> <path d=\"M2 12C2 7.28595 2 4.92893 3.46447 3.46447C4.92893 2 7.28595 2 12 2C16.714 2 19.0711 2 20.5355 3.46447C22 4.92893 22 7.28595 22 12C22 16.714 22 19.0711 20.5355 20.5355C19.0711 22 16.714 22 12 22C7.28595 22 4.92893 22 3.46447 20.5355C2 19.0711 2 16.714 2 12Z\" stroke=\"#ffffff\" stroke-width=\"1.5\"></path> </g></svg>\n                            qBittorrent</div>",
             send2app: send2qBittorrent,
             onSelect: onSelectApp
+          });
+          // Добавляем кнопку отправки в Telegram
+          e.menu.push({
+            title: "<div class=\"btnTDdownload wait\"><svg class=\"btnTDdownload\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" width=\"36\" height=\"36\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.23-.76.35-1.08.34-.36-.01-1.04-.2-1.53-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z\" fill=\"currentColor\"/></svg>Telegram</div>",
+            send2app: send2Telegram,
+            onSelect: function(a) {
+              a.send2app(selectedTorrent, null, null);
+            }
           });
         }
       });
