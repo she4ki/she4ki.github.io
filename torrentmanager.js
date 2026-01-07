@@ -48,18 +48,6 @@
           ru: "Включить CORS прокси для обхода ограничений cross-origin при подключении к qBittorrent через HTTPS с другого домена. Необходимо при ошибках CORS.",
           uk: "Увімкнути CORS проксі для обходу обмежень cross-origin при підключенні до qBittorrent через HTTPS з іншого домену. Необхідно при помилках CORS."
         },
-        TransmissionRPCRoute: {
-          ru: "RPC Path",
-          en: "RPC Path",
-          uk: "RPC Path",
-          zh: "RPC 路径"
-        },
-        TransmissionRPCRouteDescription: {
-          ru: "Изменение пути API. Не трогать без необходимости, если используете KeenDNS указать /app/transmission/rpc",
-          en: "Change api route. Do not change without need, if you use KeenDNS, specify /app/transmission/rpc",
-          uk: "Змінити маршрут API. Не чіпати без нагальної потреби, якщо ви використовуєте KeenDNS, вкажіть /app/transmission/rpc",
-          zh: "更改API路径。如无必要，请勿更改, 如使用 KeenDNS，请指定 /app/transmission/rpc"
-        },
         //Auth
         AuthSuccess: {
           en: "Authentication successful",
@@ -1198,11 +1186,7 @@
      * @returns {string} Назва таблиці, напр. 'qbittorent_metadata'.
      */
     function getTableName() {
-      var client = Lampa.Storage.field('lmetorrentSelect');
-      if (!client) {
-        console.error('[DB] Активний клієнт не вибрано!');
-        return 'default_metadata';
-      }
+      var client = 'qbittorent';
       return "".concat(client.toLowerCase(), "_metadata");
     }
     var dbPromise = null;
@@ -1562,7 +1546,7 @@
       return _updateQbittorrentMetadata.apply(this, arguments);
     }
     /**
-     * Оновлення метаданих для Synology
+     * Оновлення метаданих для qBittorrent
      *
      * @param {Object} torrent - об'єкт торента
      * @param {Object} client - інформація про клієнта
@@ -1604,35 +1588,6 @@
      * @param {Array} torrents - масив торентів
      * @param {Object} client - інформація про клієнта
      */
-    function _updateSynologyMetadata() {
-      _updateSynologyMetadata = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee6(torrent, client, mediaInfo) {
-        var key;
-        return _regenerator().w(function (_context6) {
-          while (1) switch (_context6.n) {
-            case 0:
-              try {
-                key = 'synology_torrent_' + torrent.id; // використовуємо id замість hash
-                Lampa.DB.write('torrentmanager_metadata', key, {
-                  hash: torrent.hash || torrent.id,
-                  mediaInfo: mediaInfo,
-                  updated_at: Date.now()
-                });
-                Lampa.Bell.push({
-                  text: Lampa.Lang.translate('torrentmanager_metadata_updated') //'Метадані оновлено'
-                });
-              } catch (e) {
-                console.error('TDM', 'updateSynologyMetadata error:', e);
-                Lampa.Bell.push({
-                  text: Lampa.Lang.translate('torrentmanager_metadata_error') //'Помилка оновлення метаданих'
-                });
-              }
-            case 1:
-              return _context6.a(2);
-          }
-        }, _callee6);
-      }));
-      return _updateSynologyMetadata.apply(this, arguments);
-    }
     function updateAllMetadata(_x12, _x13) {
       return _updateAllMetadata.apply(this, arguments);
     }
@@ -1929,19 +1884,11 @@
           title: Lampa.Lang.translate('add_metadata_all'),
           action: 'parse-all'
         }]);
-        if (client === 'keenetic') {
-          menuItems.push({
-            title: 'Play',
-            action: 'play'
-          });
-        }
-        if (client != 'synology') {
-          menuItems.push({
-            title: Lampa.Lang.translate('fullDelete'),
-            action: 'delete',
-            deleteFiles: true
-          });
-        }
+        menuItems.push({
+          title: Lampa.Lang.translate('fullDelete'),
+          action: 'delete',
+          deleteFiles: true
+        });
         Lampa.Select.show({
           title: torrentData.name,
           items: menuItems,
@@ -2506,16 +2453,9 @@
                             action: 'delete'
                           });
 
-                          // Add play option for Keenetic client
-                          if (client === 'keenetic') {
-                            menu.push({
-                              title: Lampa.Lang.translate('play'),
-                              action: 'play'
-                            });
-                          }
 
-                          // Add full delete option for clients that support it
-                          if (client !== 'synology') menu.push({
+                          // Add full delete option
+                          menu.push({
                             title: Lampa.Lang.translate('fullDelete'),
                             action: 'delete',
                             deleteFiles: true
@@ -2564,11 +2504,7 @@
         this.interval = null;
         this.listener = Lampa.Listener;
         this.clients = {
-          'transmission': Transmission,
-          'qbittorent': Qbittorent,
-          'keenetic': Keenetic,
-          'synology': Synology,
-          'universal': Main
+          'qbittorent': Qbittorent
         };
       }
       return _createClass(TorrentStateManager, [{
@@ -2594,7 +2530,7 @@
               while (1) switch (_context.n) {
                 case 0:
                   _context.p = 0;
-                  client_name = Lampa.Storage.get('lmetorrentSelect');
+                  client_name = 'qbittorent';
                   client = this.clients[client_name];
                   if (client) {
                     _context.n = 1;
@@ -2686,7 +2622,7 @@
      * @param {Array} allTorrents - All torrents (needed for 'parse-all' action)
      */
     function showTorrentMenu(torrentData, allTorrents) {
-      var client = Lampa.Storage.field('lmetorrentSelect');
+      var client = 'qbittorent';
       var enabled = Lampa.Controller.enabled().name;
       var hasMetadata = torrentData.tmdb_id && torrentData.media_type || parseLabels(torrentData.labels);
       var menuItems = [{
@@ -2708,19 +2644,11 @@
         title: Lampa.Lang.translate('add_metadata_all'),
         action: 'parse-all'
       }]);
-      if (client === 'keenetic') {
-        menuItems.push({
-          title: 'Play',
-          action: 'play'
-        });
-      }
-      if (client != 'synology') {
-        menuItems.push({
-          title: Lampa.Lang.translate('fullDelete'),
-          action: 'delete',
-          deleteFiles: true
-        });
-      }
+      menuItems.push({
+        title: Lampa.Lang.translate('fullDelete'),
+        action: 'delete',
+        deleteFiles: true
+      });
       Lampa.Select.show({
         title: torrentData.name,
         items: menuItems,
@@ -2756,7 +2684,7 @@
         return _regenerator().w(function (_context) {
           while (1) switch (_context.n) {
             case 0:
-              client = Lampa.Storage.field('lmetorrentSelect');
+              client = 'qbittorent';
               if (!(action.action === 'card')) {
                 _context.n = 1;
                 break;
@@ -2853,7 +2781,7 @@
       return function () {
         Lampa.Activity.push({
           url: '',
-          title: Lampa.Storage.get('lmetorrentSelect').toUpperCase() + " Manager",
+          title: "qBittorrent Manager",
           component: 'lmetorrentPanel',
           page: 1
         });
@@ -2892,7 +2820,7 @@
           // Panel navigation item
           //createPanelNavigationItem(),
           {
-            title: Lampa.Storage.get('lmetorrentSelect').toUpperCase() + " Manager",
+            title: "qBittorrent Manager",
             action: 'panel',
             onSelect: function onSelect() {
               createPanelNavigationItem()();
