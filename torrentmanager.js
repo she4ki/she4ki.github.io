@@ -664,14 +664,27 @@
       var headers = {};
       if (type) headers["Content-Type"] = type;
       var authKey = Lampa.Storage.get("lmetorrentqBittorentKey");
-      if (authKey) {
+      var useProxy = Lampa.Storage.field('lmetorrentqBittorentProxy') === true;
+      if (authKey && authKey !== "PROXY_MODE") {
         if (authKey.startsWith('Basic ')) {
           headers["Authorization"] = authKey;
-        } else {
+        } else if (authKey.startsWith('SID=')) {
+          // Cookie - пробуем использовать даже через прокси
           headers["Cookie"] = authKey;
         }
+      } else if (authKey === "PROXY_MODE") {
+        // В режиме прокси без cookie - логинимся при каждом запросе не будем,
+        // но попробуем использовать cookie, если они есть в document.cookie
+        var cookies = document.cookie.split(';');
+        var sidCookie = cookies.find(function (cookie) {
+          return cookie.trim().startsWith('SID=');
+        });
+        if (sidCookie) {
+          var sidValue = sidCookie.split('=')[1].trim();
+          headers["Cookie"] = "SID=".concat(sidValue);
+        }
       }
-      if (Lampa.Storage.field('lmetorrentqBittorentProxy') === true) headers["x-requested-with"] = 'lme-plugins';
+      if (useProxy) headers["x-requested-with"] = 'lme-plugins';
       return headers;
     }
     function auth$3() {
@@ -687,24 +700,43 @@
         var targetUrl = "".concat(url, "/api/v2/auth/login");
         var loginUrl = buildProxyUrl(proxy, targetUrl);
         console.log('TDM Auth URL:', loginUrl, 'Target URL:', targetUrl);
+        var useProxy = Lampa.Storage.field("lmetorrentqBittorentProxy") === true;
+        var authHeaders = {};
+        authHeaders["Content-Type"] = "application/x-www-form-urlencoded";
+        // При использовании прокси добавляем Basic Auth сразу в заголовки запроса логина
+        // Это поможет прокси правильно передать авторизацию
+        if (useProxy) {
+          var authString = btoa("".concat(username, ":").concat(password));
+          authHeaders["Authorization"] = "Basic ".concat(authString);
+        }
+        if (useProxy) authHeaders["x-requested-with"] = 'lme-plugins';
+        console.log('TDM Auth headers:', Object.keys(authHeaders));
         $.ajax({
           url: loginUrl,
           method: "POST",
           timeout: 10000,
-          headers: getHeaders$3("application/x-www-form-urlencoded"),
+          headers: authHeaders,
           data: {
             username: username,
             password: password
           }
         }).done(function (response, textStatus, jqXHR) {
+          console.log('TDM Auth response:', {
+            response: response,
+            status: jqXHR.status,
+            allResponseHeaders: jqXHR.getAllResponseHeaders()
+          });
           if (response === "Ok.") {
-            // Пробуем получить cookie из заголовков ответа
+            var useProxy = Lampa.Storage.field("lmetorrentqBittorentProxy") === true;
+            // При использовании прокси cookie могут не работать, но попробуем их получить
+            // Пробуем получить cookie из заголовков ответа (может работать через прокси)
             var setCookieHeader = jqXHR.getResponseHeader('Set-Cookie');
+            console.log('TDM Auth Set-Cookie header:', setCookieHeader);
             if (setCookieHeader) {
               var sidMatch = setCookieHeader.match(/SID=([^;]+)/);
               if (sidMatch) {
                 Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidMatch[1]));
-                console.log('TDM Auth: Success, cookie from Set-Cookie header saved');
+                console.log('TDM Auth: Success, cookie from Set-Cookie header saved:', sidMatch[1].substring(0, 20) + '...');
               }
             }
             // Также проверяем document.cookie (может работать без прокси)
@@ -719,11 +751,33 @@
                 console.log('TDM Auth: Success, cookie from document.cookie saved');
               }
             }
-            // Если cookie все еще нет, используем username:password в заголовке Authorization
-            if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
-              var authString = btoa("".concat(username, ":").concat(password));
-              Lampa.Storage.set("lmetorrentqBittorentKey", "Basic ".concat(authString));
-              console.log('TDM Auth: Success, using Basic Auth');
+            // Если через прокси и cookie не получены, сохраняем username/password для повторного логина при каждом запросе
+            if (useProxy && !Lampa.Storage.get("lmetorrentqBittorentKey")) {
+              // Сохраняем флаг, что нужно логиниться при каждом запросе
+              Lampa.Storage.set("lmetorrentqBittorentKey", "PROXY_MODE");
+              console.log('TDM Auth: Success, proxy mode - will re-auth on each request');
+            } else if (!useProxy) {
+              // Без прокси пробуем получить cookie
+              var setCookieHeader = jqXHR.getResponseHeader('Set-Cookie');
+              if (setCookieHeader) {
+                var sidMatch = setCookieHeader.match(/SID=([^;]+)/);
+                if (sidMatch) {
+                  Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidMatch[1]));
+                  console.log('TDM Auth: Success, cookie from Set-Cookie header saved');
+                }
+              }
+              // Также проверяем document.cookie
+              if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+                var cookies = document.cookie.split(';');
+                var sidCookie = cookies.find(function (cookie) {
+                  return cookie.trim().startsWith('SID=');
+                });
+                if (sidCookie) {
+                  var sidValue = sidCookie.split('=')[1].trim();
+                  Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidValue));
+                  console.log('TDM Auth: Success, cookie from document.cookie saved');
+                }
+              }
             }
             resolve(true);
           } else {
@@ -846,7 +900,8 @@
       };
       return new Promise(function (resolve, reject) {
         // Проверяем, есть ли cookie, если нет - логинимся
-        if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+        var authKey = Lampa.Storage.get("lmetorrentqBittorentKey");
+        if (!authKey || authKey === "PROXY_MODE") {
           auth$3().then(function () {
             // После успешного логина делаем запрос
             makeRequest().done(function (response) {
