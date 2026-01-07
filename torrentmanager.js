@@ -647,18 +647,16 @@
     }
     function getProxy$1() {
       if (Lampa.Storage.field("lmetorrentqBittorentProxy") === true) {
-        return 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/?url=';
+        return 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/';
       }
       return "";
     }
     function buildProxyUrl(proxy, targetUrl) {
       if (!proxy) return targetUrl;
-      // Если прокси использует формат с параметром ?url=
-      if (proxy.includes('?url=')) {
-        return proxy + encodeURIComponent(targetUrl);
-      }
-      // Иначе просто конкатенируем
-      return proxy + targetUrl;
+      // cors-anywhere использует формат: proxy.com/https://target.com/path
+      // Убираем завершающий слэш из proxy, если есть
+      var proxyBase = proxy.replace(/\/$/, '');
+      return proxyBase + '/' + targetUrl;
     }
     function getHeaders$3(type) {
       var headers = {};
