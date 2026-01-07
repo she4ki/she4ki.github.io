@@ -654,12 +654,92 @@
     function getHeaders$3(type) {
       var headers = {};
       if (type) headers["Content-Type"] = type;
-      if (Lampa.Storage.get("lmetorrentqBittorentKey")) headers["set-cookie"] = Lampa.Storage.get("lmetorrentqBittorentKey");
+      var authKey = Lampa.Storage.get("lmetorrentqBittorentKey");
+      if (authKey) {
+        if (authKey.startsWith('Basic ')) {
+          headers["Authorization"] = authKey;
+        } else {
+          headers["Cookie"] = authKey;
+        }
+      }
       if (Lampa.Storage.field('lmetorrentqBittorentProxy') === true) headers["x-requested-with"] = 'lme-plugins';
       return headers;
     }
-    function auth$3() {}
+    function auth$3() {
+      return new Promise(function (resolve, reject) {
+        var username = Lampa.Storage.field("lmetorrentqBittorentUser");
+        var password = Lampa.Storage.field("lmetorrentqBittorentPass");
+        if (!username || !password) {
+          reject(new Error("Username или password не настроены"));
+          return;
+        }
+        var url = getUrl$1();
+        var proxy = getProxy$1();
+        var loginUrl = "".concat(proxy).concat(url, "/api/v2/auth/login");
+        console.log('TDM Auth URL:', loginUrl);
+        $.ajax({
+          url: loginUrl,
+          method: "POST",
+          timeout: 10000,
+          headers: getHeaders$3("application/x-www-form-urlencoded"),
+          data: {
+            username: username,
+            password: password
+          }
+        }).done(function (response, textStatus, jqXHR) {
+          if (response === "Ok.") {
+            // Пробуем получить cookie из заголовков ответа
+            var setCookieHeader = jqXHR.getResponseHeader('Set-Cookie');
+            if (setCookieHeader) {
+              var sidMatch = setCookieHeader.match(/SID=([^;]+)/);
+              if (sidMatch) {
+                Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidMatch[1]));
+                console.log('TDM Auth: Success, cookie from Set-Cookie header saved');
+              }
+            }
+            // Также проверяем document.cookie (может работать без прокси)
+            if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+              var cookies = document.cookie.split(';');
+              var sidCookie = cookies.find(function (cookie) {
+                return cookie.trim().startsWith('SID=');
+              });
+              if (sidCookie) {
+                var sidValue = sidCookie.split('=')[1].trim();
+                Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidValue));
+                console.log('TDM Auth: Success, cookie from document.cookie saved');
+              }
+            }
+            // Если cookie все еще нет, используем username:password в заголовке Authorization
+            if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+              var authString = btoa("".concat(username, ":").concat(password));
+              Lampa.Storage.set("lmetorrentqBittorentKey", "Basic ".concat(authString));
+              console.log('TDM Auth: Success, using Basic Auth');
+            }
+            resolve(true);
+          } else {
+            console.error('TDM Auth error:', response);
+            reject(new Error("Ошибка аутентификации: ".concat(response)));
+          }
+        }).fail(function (jqXHR, textStatus, errorThrown) {
+          var errorMsg = "Ошибка аутентификации: ".concat(textStatus);
+          if (jqXHR.status) {
+            errorMsg += " (HTTP ".concat(jqXHR.status, ")");
+          }
+          if (jqXHR.responseText) {
+            errorMsg += " - ".concat(jqXHR.responseText.substring(0, 100));
+          }
+          console.error('TDM Auth error:', {
+            status: jqXHR.status,
+            statusText: textStatus,
+            error: errorThrown,
+            responseText: jqXHR.responseText
+          });
+          reject(new Error(errorMsg));
+        });
+      });
+    }
     function GetData$3() {
+      var _this = this;
       var url = getUrl$1();
       var proxy = getProxy$1();
       var fullUrl = "".concat(proxy).concat(url, "/api/v2/sync/maindata");
@@ -670,9 +750,17 @@
         timeout: 0,
         headers: getHeaders$3()
       };
-      return new Promise(function (resolve, reject) {
-        $.ajax(settings).done(/*#__PURE__*/function () {
-          var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(response) {
+      var makeRequest = function makeRequest() {
+        return $.ajax({
+          url: fullUrl,
+          method: "GET",
+          timeout: 0,
+          headers: getHeaders$3()
+        });
+      };
+      var processResponse = function processResponse(response) {
+        return new Promise(function (resolve, reject) {
+          var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
             var torrents, standardizedResponse, _t8;
             return _regenerator().w(function (_context2) {
               while (1) switch (_context2.n) {
@@ -734,10 +822,62 @@
               }
             }, _callee2, null, [[0, 3]]);
           }));
-          return function (_x) {
+          return function () {
             return _ref.apply(this, arguments);
           };
-        }()).fail(function (jqXHR, textStatus, errorThrown) {
+        }());
+      };
+      return new Promise(function (resolve, reject) {
+        // Проверяем, есть ли cookie, если нет - логинимся
+        if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+          auth$3().then(function () {
+            // После успешного логина делаем запрос
+            makeRequest().done(function (response) {
+              processResponse(response).then(resolve)["catch"](reject);
+            }).fail(function (jqXHR, textStatus, errorThrown) {
+              handleError(jqXHR, textStatus, errorThrown, resolve, reject);
+            });
+          })["catch"](function (authError) {
+            reject(authError);
+          });
+        } else {
+          makeRequest().done(function (response) {
+            processResponse(response).then(resolve)["catch"](reject);
+          }).fail(function (jqXHR, textStatus, errorThrown) {
+            handleError(jqXHR, textStatus, errorThrown, resolve, reject);
+          });
+        }
+        function handleError(jqXHR, textStatus, errorThrown, resolve, reject) {
+          // Если получили 403, пробуем перелогиниться
+          if (jqXHR.status === 403) {
+            console.log('TDM GetData: 403 Forbidden, trying to re-authenticate...');
+            Lampa.Storage.remove("lmetorrentqBittorentKey");
+            auth$3().then(function () {
+              // После успешного логина повторяем запрос
+              makeRequest().done(function (response) {
+                processResponse(response).then(resolve)["catch"](reject);
+              }).fail(function (jqXHR2, textStatus2, errorThrown2) {
+                var errorMsg2 = "Ошибка подключения к qBittorrent: ".concat(textStatus2);
+                if (jqXHR2.status) {
+                  errorMsg2 += " (HTTP ".concat(jqXHR2.status, ")");
+                }
+                if (jqXHR2.responseText) {
+                  errorMsg2 += " - ".concat(jqXHR2.responseText.substring(0, 100));
+                }
+                console.error('TDM GetData error after re-auth:', {
+                  status: jqXHR2.status,
+                  statusText: textStatus2,
+                  error: errorThrown2,
+                  responseText: jqXHR2.responseText,
+                  url: fullUrl
+                });
+                reject(new Error(errorMsg2));
+              });
+            })["catch"](function (authError) {
+              reject(authError);
+            });
+            return;
+          }
           var errorMsg = "Ошибка подключения к qBittorrent: ".concat(textStatus);
           if (jqXHR.status) {
             errorMsg += " (HTTP ".concat(jqXHR.status, ")");
@@ -750,10 +890,10 @@
             statusText: textStatus,
             error: errorThrown,
             responseText: jqXHR.responseText,
-            url: settings.url
+            url: fullUrl
           });
           reject(new Error(errorMsg));
-        });
+        }
       });
     }
     function GetInfo$3() {
@@ -2191,6 +2331,44 @@
         },
         field: {
           name: "Address"
+        },
+        onRender: function onRender(item) {
+          item.show();
+        },
+        onChange: function onChange(item) {
+          Lampa.Settings.update();
+        }
+      });
+      Lampa.SettingsApi.addParam({
+        component: manifest.component,
+        param: {
+          name: manifest.component + "qBittorentUser",
+          type: "input",
+          placeholder: 'admin',
+          values: '',
+          "default": ''
+        },
+        field: {
+          name: "Username"
+        },
+        onRender: function onRender(item) {
+          item.show();
+        },
+        onChange: function onChange(item) {
+          Lampa.Settings.update();
+        }
+      });
+      Lampa.SettingsApi.addParam({
+        component: manifest.component,
+        param: {
+          name: manifest.component + "qBittorentPass",
+          type: "input",
+          placeholder: 'password',
+          values: '',
+          "default": ''
+        },
+        field: {
+          name: "Password"
         },
         onRender: function onRender(item) {
           item.show();
