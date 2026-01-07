@@ -645,16 +645,30 @@
       url = url.replace(/\/$/, '');
       return url;
     }
+    function getGASUrl() {
+      // URL Google Apps Script для проксирования запросов
+      var gasUrl = Lampa.Storage.get("lmetorrentqBittorentGASUrl", "");
+      if (gasUrl) {
+        return gasUrl;
+      }
+      // Если URL не настроен, возвращаем пустую строку (прямое подключение)
+      return "";
+    }
     function getProxy$1() {
+      // Оставлено для обратной совместимости, но теперь использует GAS
       if (Lampa.Storage.field("lmetorrentqBittorentProxy") === true) {
+        var gasUrl = getGASUrl();
+        if (gasUrl) {
+          return gasUrl;
+        }
+        // Если GAS URL не настроен, но прокси включен, возвращаем старый прокси для обратной совместимости
         return 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/';
       }
       return "";
     }
     function buildProxyUrl(proxy, targetUrl) {
+      // Оставлено для обратной совместимости, но больше не используется
       if (!proxy) return targetUrl;
-      // cors-anywhere использует формат: proxy.com/https://target.com/path
-      // Убираем завершающий слэш из proxy, если есть
       var proxyBase = proxy.replace(/\/$/, '');
       var finalUrl = proxyBase + '/' + targetUrl;
       console.log('TDM buildProxyUrl:', {
@@ -663,6 +677,94 @@
         finalUrl: finalUrl
       });
       return finalUrl;
+    }
+    /**
+     * Отправляет запрос к qBittorrent API через Google Apps Script
+     * @param {string} targetUrl - URL qBittorrent API
+     * @param {string} method - HTTP метод (GET, POST, etc.)
+     * @param {Object} headers - HTTP заголовки
+     * @param {Object|string} data - Данные для отправки (для POST запросов)
+     * @returns {Promise} - Promise с результатом запроса
+     */
+    function makeRequestViaGAS(targetUrl, method, headers, data) {
+      return new Promise(function(resolve, reject) {
+        var gasUrl = getGASUrl();
+        if (!gasUrl) {
+          // Если GAS URL не настроен, делаем прямой запрос
+          var settings = {
+            url: targetUrl,
+            method: method,
+            timeout: method === "GET" ? 0 : 10000,
+            headers: headers || {},
+            xhrFields: {
+              withCredentials: true
+            },
+            crossDomain: true
+          };
+          if (data) {
+            settings.data = data;
+          }
+          $.ajax(settings).done(resolve).fail(reject);
+          return;
+        }
+        
+        // Подготавливаем данные для отправки в Google Apps Script
+        var requestData = {
+          targetUrl: targetUrl,
+          method: method,
+          headers: headers || {},
+          data: data || null
+        };
+        
+        // Отправляем запрос в Google Apps Script
+        // Добавляем action в requestData
+        requestData.action = 'proxy';
+        
+        $.ajax({
+          url: gasUrl,
+          method: "POST",
+          timeout: method === "GET" ? 0 : 10000,
+          headers: {
+            "Content-Type": "application/json"
+          },
+          data: JSON.stringify(requestData),
+          dataType: "json"
+        }).done(function(response) {
+          if (response.success) {
+            // Если ответ успешен, возвращаем данные
+            if (response.data) {
+              try {
+                // Пытаемся распарсить JSON, если это строка
+                var parsedData = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+                resolve(parsedData);
+              } catch (e) {
+                // Если не JSON, возвращаем как есть
+                resolve(response.data);
+              }
+            } else {
+              resolve(response);
+            }
+          } else {
+            reject(new Error(response.error || 'Unknown error from Google Apps Script'));
+          }
+        }).fail(function(jqXHR, textStatus, errorThrown) {
+          var errorMsg = "Ошибка Google Apps Script: " + textStatus;
+          if (jqXHR.status) {
+            errorMsg += " (HTTP " + jqXHR.status + ")";
+          }
+          if (jqXHR.responseText) {
+            try {
+              var errorResponse = JSON.parse(jqXHR.responseText);
+              if (errorResponse.error) {
+                errorMsg += " - " + errorResponse.error;
+              }
+            } catch (e) {
+              errorMsg += " - " + jqXHR.responseText.substring(0, 200);
+            }
+          }
+          reject(new Error(errorMsg));
+        });
+      });
     }
     function getHeaders$3(type) {
       var headers = {};
@@ -700,23 +802,46 @@
           return;
         }
         var url = getUrl$1();
-        var proxy = getProxy$1();
         var targetUrl = "".concat(url, "/api/v2/auth/login");
-        var loginUrl = buildProxyUrl(proxy, targetUrl);
-        console.log('TDM Auth URL:', loginUrl, 'Target URL:', targetUrl);
-        var useProxy = Lampa.Storage.field("lmetorrentqBittorentProxy") === true;
+        console.log('TDM Auth Target URL:', targetUrl);
+        var useGAS = getGASUrl() !== "";
         var authHeaders = {};
         authHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-        // При использовании прокси добавляем Basic Auth сразу в заголовки запроса логина
-        // Это поможет прокси правильно передать авторизацию
-        if (useProxy) {
-          var authString = btoa("".concat(username, ":").concat(password));
-          authHeaders["Authorization"] = "Basic ".concat(authString);
+        
+        var loginData = {
+          username: username,
+          password: password
+        };
+        
+        console.log('TDM Auth using GAS:', useGAS);
+        
+        if (useGAS) {
+          // Используем Google Apps Script
+          makeRequestViaGAS(targetUrl, "POST", authHeaders, loginData)
+            .then(function(response) {
+              // Обрабатываем ответ от GAS
+              if (response === "Ok." || (typeof response === 'string' && response.trim() === "Ok.")) {
+                // При использовании GAS cookie не могут быть установлены напрямую
+                // Сохраняем Basic Auth для последующих запросов
+                var authString = btoa("".concat(username, ":").concat(password));
+                Lampa.Storage.set("lmetorrentqBittorentKey", "Basic ".concat(authString));
+                console.log('TDM Auth: Success via GAS, Basic Auth saved');
+                resolve(true);
+              } else {
+                console.error('TDM Auth error:', response);
+                reject(new Error("Ошибка аутентификации: ".concat(response)));
+              }
+            })
+            .catch(function(error) {
+              console.error('TDM Auth error:', error);
+              reject(error);
+            });
+          return;
         }
-        if (useProxy) authHeaders["x-requested-with"] = 'lme-plugins';
-        console.log('TDM Auth headers:', Object.keys(authHeaders));
+        
+        // Прямое подключение без прокси
         $.ajax({
-          url: loginUrl,
+          url: targetUrl,
           method: "POST",
           timeout: 10000,
           headers: authHeaders,
@@ -724,10 +849,7 @@
             withCredentials: true
           },
           crossDomain: true,
-          data: {
-            username: username,
-            password: password
-          }
+          data: loginData
         }).done(function (response, textStatus, jqXHR) {
           var allHeaders = jqXHR.getAllResponseHeaders();
           console.log('TDM Auth response:', {
@@ -748,10 +870,11 @@
             console.warn('TDM Auth: CORS заголовки не найдены в ответе! Проверьте настройки Synology Reverse Proxy.');
           }
           if (corsCredentials !== 'true') {
-            console.warn('TDM Auth: Access-Control-Allow-Credentials не установлен в true!');
+            console.warn('TDM Auth: Access-Control-Allow-Credentials не установлен в true! Cookie не будут работать.');
           }
-          if (!corsExposeHeaders || !corsExposeHeaders.includes('Set-Cookie')) {
-            console.warn('TDM Auth: Access-Control-Expose-Headers не содержит Set-Cookie!');
+          if (!corsExposeHeaders || !corsExposeHeaders.toLowerCase().includes('set-cookie')) {
+            console.warn('TDM Auth: Access-Control-Expose-Headers не содержит Set-Cookie! Cookie не могут быть прочитаны из заголовков.');
+            console.warn('TDM Auth: Добавьте "Set-Cookie" в Access-Control-Expose-Headers в настройках Synology Reverse Proxy.');
           }
           if (response === "Ok.") {
             var useProxy = Lampa.Storage.field("lmetorrentqBittorentProxy") === true;
@@ -762,11 +885,12 @@
               var sidMatch = setCookieHeader.match(/SID=([^;]+)/);
               if (sidMatch) {
                 Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidMatch[1]));
-                console.log('TDM Auth: Success, cookie from Set-Cookie header saved:', sidMatch[1].substring(0, 20) + '...');
+                console.log('TDM Auth: Success, cookie from Set-Cookie header saved');
               }
             }
-            // Также проверяем document.cookie (может работать без прокси)
-            if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+            // Также проверяем document.cookie (браузер может установить cookie автоматически)
+            // Делаем это с небольшой задержкой, чтобы браузер успел установить cookie
+            setTimeout(function () {
               var cookies = document.cookie.split(';');
               var sidCookie = cookies.find(function (cookie) {
                 return cookie.trim().startsWith('SID=');
@@ -775,9 +899,12 @@
                 var sidValue = sidCookie.split('=')[1].trim();
                 Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidValue));
                 console.log('TDM Auth: Success, cookie from document.cookie saved');
+              } else if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
+                console.warn('TDM Auth: Cookie не установлены! Проверьте настройки CORS в Synology.');
+                console.warn('TDM Auth: Убедитесь, что Access-Control-Expose-Headers содержит Set-Cookie');
+                console.warn('TDM Auth: И что Access-Control-Allow-Credentials установлен в true');
               }
-            }
-            // Разрешаем промис сразу, проверка cookie произойдет в setTimeout
+            }, 200);
             resolve(true);
           } else {
             console.error('TDM Auth error:', response);
@@ -810,27 +937,27 @@
     function GetData$3() {
       var _this = this;
       var url = getUrl$1();
-      var proxy = getProxy$1();
       var targetUrl = "".concat(url, "/api/v2/sync/maindata");
-      var fullUrl = buildProxyUrl(proxy, targetUrl);
-      console.log('TDM GetData URL:', fullUrl, 'Target URL:', targetUrl);
-      var settings = {
-        url: fullUrl,
-        method: "GET",
-        timeout: 0,
-        headers: getHeaders$3()
-      };
+      console.log('TDM GetData Target URL:', targetUrl);
+      var useGAS = getGASUrl() !== "";
+      
       var makeRequest = function makeRequest() {
-        return $.ajax({
-          url: fullUrl,
-          method: "GET",
-          timeout: 0,
-          headers: getHeaders$3(),
-          xhrFields: {
-            withCredentials: true
-          },
-          crossDomain: true
-        });
+        if (useGAS) {
+          // Используем Google Apps Script
+          return makeRequestViaGAS(targetUrl, "GET", getHeaders$3(), null);
+        } else {
+          // Прямое подключение
+          return $.ajax({
+            url: targetUrl,
+            method: "GET",
+            timeout: 0,
+            headers: getHeaders$3(),
+            xhrFields: {
+              withCredentials: true
+            },
+            crossDomain: true
+          });
+        }
       };
       var processResponse = function processResponse(response) {
         return new Promise(function (resolve, reject) {
@@ -907,68 +1034,37 @@
         if (!authKey || authKey === "PROXY_MODE") {
           auth$3().then(function () {
             // После успешного логина делаем запрос
-            makeRequest().done(function (response) {
-              // Проверяем, не вернул ли прокси информационное сообщение
-              if (typeof response === 'string' && (response.includes('cors-anywhere') || response.includes('This API enables cross-origin'))) {
-                console.error('TDM GetData: Прокси вернул информационное сообщение в response!');
-                console.error('TDM GetData: URL был:', fullUrl);
-                reject(new Error('Прокси вернул информационное сообщение вместо данных. Проверьте формат URL.'));
-                return;
-              }
+            makeRequest().then(function (response) {
               processResponse(response).then(resolve)["catch"](reject);
-            }).fail(function (jqXHR, textStatus, errorThrown) {
-              handleError(jqXHR, textStatus, errorThrown, resolve, reject);
+            }).catch(function (error) {
+              handleError(error, resolve, reject);
             });
           })["catch"](function (authError) {
             reject(authError);
           });
         } else {
-          makeRequest().done(function (response) {
-            // Проверяем, не вернул ли прокси информационное сообщение
-            if (typeof response === 'string' && (response.includes('cors-anywhere') || response.includes('This API enables cross-origin'))) {
-              console.error('TDM GetData: Прокси вернул информационное сообщение в response!');
-              console.error('TDM GetData: URL был:', fullUrl);
-              reject(new Error('Прокси вернул информационное сообщение вместо данных. Проверьте формат URL.'));
-              return;
-            }
+          makeRequest().then(function (response) {
             processResponse(response).then(resolve)["catch"](reject);
-          }).fail(function (jqXHR, textStatus, errorThrown) {
-            handleError(jqXHR, textStatus, errorThrown, resolve, reject);
+          }).catch(function (error) {
+            handleError(error, resolve, reject);
           });
         }
-        function handleError(jqXHR, textStatus, errorThrown, resolve, reject) {
-          // Проверяем, не вернул ли прокси информационное сообщение
-          if (jqXHR.responseText && (jqXHR.responseText.includes('cors-anywhere') || jqXHR.responseText.includes('This API enables cross-origin'))) {
-            console.error('TDM GetData: Прокси вернул информационное сообщение вместо данных!');
-            console.error('TDM GetData: Это означает, что прокси получил неправильный формат URL');
-            console.error('TDM GetData: URL был:', fullUrl);
-            console.error('TDM GetData: Ответ прокси (первые 500 символов):', jqXHR.responseText.substring(0, 500));
-            reject(new Error('Прокси вернул информационное сообщение. Проверьте формат URL в логах выше.'));
-            return;
-          }
-          // Если получили 403, пробуем перелогиниться
-          if (jqXHR.status === 403) {
+        function handleError(error, resolve, reject) {
+          // Обработка ошибок для GAS и прямых запросов
+          console.error('TDM GetData error:', error);
+          
+          // Если получили ошибку 403, пробуем перелогиниться
+          var errorStatus = error.status || (error.message && error.message.includes('403') ? 403 : null);
+          if (errorStatus === 403) {
             console.log('TDM GetData: 403 Forbidden, trying to re-authenticate...');
             Lampa.Storage.remove("lmetorrentqBittorentKey");
             auth$3().then(function () {
               // После успешного логина повторяем запрос
-              makeRequest().done(function (response) {
+              makeRequest().then(function (response) {
                 processResponse(response).then(resolve)["catch"](reject);
-              }).fail(function (jqXHR2, textStatus2, errorThrown2) {
-                var errorMsg2 = "Ошибка подключения к qBittorrent: ".concat(textStatus2);
-                if (jqXHR2.status) {
-                  errorMsg2 += " (HTTP ".concat(jqXHR2.status, ")");
-                }
-                if (jqXHR2.responseText) {
-                  errorMsg2 += " - ".concat(jqXHR2.responseText.substring(0, 100));
-                }
-                console.error('TDM GetData error after re-auth:', {
-                  status: jqXHR2.status,
-                  statusText: textStatus2,
-                  error: errorThrown2,
-                  responseText: jqXHR2.responseText,
-                  url: fullUrl
-                });
+              }).catch(function (error2) {
+                var errorMsg2 = "Ошибка подключения к qBittorrent после повторной авторизации: " + (error2.message || error2);
+                console.error('TDM GetData error after re-auth:', error2);
                 reject(new Error(errorMsg2));
               });
             })["catch"](function (authError) {
@@ -976,41 +1072,39 @@
             });
             return;
           }
-          var errorMsg = "Ошибка подключения к qBittorrent: ".concat(textStatus);
-          if (jqXHR.status) {
-            errorMsg += " (HTTP ".concat(jqXHR.status, ")");
+          
+          // Общая обработка ошибок
+          var errorMsg = "Ошибка подключения к qBittorrent: " + (error.message || error);
+          if (errorStatus) {
+            errorMsg += " (HTTP " + errorStatus + ")";
           }
-          if (jqXHR.responseText) {
-            errorMsg += " - ".concat(jqXHR.responseText.substring(0, 100));
-          }
-          console.error('TDM GetData error:', {
-            status: jqXHR.status,
-            statusText: textStatus,
-            error: errorThrown,
-            responseText: jqXHR.responseText,
-            url: fullUrl
-          });
           reject(new Error(errorMsg));
         }
       });
     }
     function GetInfo$3() {
       var url = getUrl$1();
-      var proxy = getProxy$1();
       var targetUrl = "".concat(url, "/api/v2/sync/maindata");
-      var fullUrl = buildProxyUrl(proxy, targetUrl);
-      var settings = {
-        url: fullUrl,
-        method: "GET",
-        timeout: 0,
-        headers: getHeaders$3()
-      };
+      var useGAS = getGASUrl() !== "";
+      
       return new Promise(function (resolve, reject) {
-        settings.xhrFields = {
-          withCredentials: true
-        };
-        settings.crossDomain = true;
-        $.ajax(settings).done(function (response) {
+        var requestPromise;
+        if (useGAS) {
+          requestPromise = makeRequestViaGAS(targetUrl, "GET", getHeaders$3(), null);
+        } else {
+          requestPromise = $.ajax({
+            url: targetUrl,
+            method: "GET",
+            timeout: 0,
+            headers: getHeaders$3(),
+            xhrFields: {
+              withCredentials: true
+            },
+            crossDomain: true
+          });
+        }
+        
+        requestPromise.then(function (response) {
           try {
             var standardizedResponse = {
               "space": response.server_state.free_space_on_disk
@@ -1019,26 +1113,12 @@
           } catch (error) {
             reject(new Error('Ошибка при обработке данных'));
           }
-        }).fail(function (jqXHR, textStatus, errorThrown) {
-          var errorMsg = "Ошибка подключения к qBittorrent: ".concat(textStatus);
-          if (jqXHR.status) {
-            errorMsg += " (HTTP ".concat(jqXHR.status, ")");
+        }).catch(function (error) {
+          var errorMsg = "Ошибка подключения к qBittorrent: " + (error.message || error);
+          if (error.status) {
+            errorMsg += " (HTTP " + error.status + ")";
           }
-          if (jqXHR.responseText) {
-            var responseText = jqXHR.responseText.substring(0, 200);
-            errorMsg += " - ".concat(responseText);
-            // Проверяем на DNS ошибку
-            if (responseText.includes('ENOTFOUND') || responseText.includes('getaddrinfo')) {
-              errorMsg += "\n\nПрокси не может разрешить домен. Попробуйте использовать IP адрес вместо домена.";
-            }
-          }
-          console.error('TDM GetInfo error:', {
-            status: jqXHR.status,
-            statusText: textStatus,
-            error: errorThrown,
-            url: settings.url,
-            responseText: jqXHR.responseText
-          });
+          console.error('TDM GetInfo error:', error);
           reject(new Error(errorMsg));
         });
       });
@@ -1046,18 +1126,26 @@
     function SendCommand$3(btn, torrent_data) {
       return new Promise(function (resolve, reject) {
         var url = getUrl$1();
-        var proxy = getProxy$1();
+        var useGAS = getGASUrl() !== "";
         // First check qBittorrent version
-        var versionUrl = buildProxyUrl(proxy, "".concat(url, "/api/v2/app/version"));
-        $.ajax({
-          url: versionUrl,
-          method: "GET",
-          headers: getHeaders$3(),
-          xhrFields: {
-            withCredentials: true
-          },
-          crossDomain: true
-        }).then(function (version) {
+        var versionUrl = "".concat(url, "/api/v2/app/version");
+        
+        var versionPromise;
+        if (useGAS) {
+          versionPromise = makeRequestViaGAS(versionUrl, "GET", getHeaders$3(), null);
+        } else {
+          versionPromise = $.ajax({
+            url: versionUrl,
+            method: "GET",
+            headers: getHeaders$3(),
+            xhrFields: {
+              withCredentials: true
+            },
+            crossDomain: true
+          });
+        }
+        
+        versionPromise.then(function (version) {
           var versionNumber = parseFloat(version.replace(/[^\d.]/g, ''));
 
           // Adjust action based on version
@@ -1068,21 +1156,30 @@
 
           // Then send the command
           var deleteFiles = btn.deleteFiles ? "true" : "";
-          var commandUrl = buildProxyUrl(proxy, "".concat(url, "/api/v2/torrents/").concat(btn.action));
-          return $.ajax({
-            url: commandUrl,
-            method: "POST",
-            timeout: 0,
-            headers: getHeaders$3("application/x-www-form-urlencoded"),
-            xhrFields: {
-              withCredentials: true
-            },
-            crossDomain: true,
-            data: {
-              "hashes": torrent_data.id,
-              deleteFiles: deleteFiles
-            }
-          });
+          var commandUrl = "".concat(url, "/api/v2/torrents/").concat(btn.action);
+          var commandData = {
+            "hashes": torrent_data.id,
+            deleteFiles: deleteFiles
+          };
+          
+          var commandPromise;
+          if (useGAS) {
+            commandPromise = makeRequestViaGAS(commandUrl, "POST", getHeaders$3("application/x-www-form-urlencoded"), commandData);
+          } else {
+            commandPromise = $.ajax({
+              url: commandUrl,
+              method: "POST",
+              timeout: 0,
+              headers: getHeaders$3("application/x-www-form-urlencoded"),
+              xhrFields: {
+                withCredentials: true
+              },
+              crossDomain: true,
+              data: commandData
+            });
+          }
+          
+          return commandPromise;
         }).then(function () {
           resolve(Lampa.Bell.push({
             text: Lampa.Lang.translate('actionSentSuccessfully')
@@ -1100,28 +1197,36 @@
         return;
       }
       var url = getUrl$1();
-      var proxy = getProxy$1();
       var targetUrl = "".concat(url, "/api/v2/torrents/add");
-      var fullUrl = buildProxyUrl(proxy, targetUrl);
-      var settings = {
-        url: fullUrl,
-        method: "POST",
-        timeout: 0,
-        headers: getHeaders$3("application/x-www-form-urlencoded"),
-        xhrFields: {
-          withCredentials: true
-        },
-        crossDomain: true,
-        "data": {
-          "tags": labels,
-          "urls": selectedTorrent.MagnetUri ? selectedTorrent.MagnetUri : selectedTorrent.Link,
-          "category": Lampa.Storage.get("lmetorrentqBittorent".concat(dtype)) ? Lampa.Storage.get("lmetorrentqBittorent".concat(dtype)) : '',
-          "firstLastPiecePrio": Lampa.Storage.field("lmetorrentqBittorentfirstLastPiecePrio") ? "true" : "false",
-          "sequentialDownload": Lampa.Storage.field("lmetorrentqBittorentSequentialDownload") ? "true" : "false"
-        }
+      var useGAS = getGASUrl() !== "";
+      
+      var taskData = {
+        "tags": labels,
+        "urls": selectedTorrent.MagnetUri ? selectedTorrent.MagnetUri : selectedTorrent.Link,
+        "category": Lampa.Storage.get("lmetorrentqBittorent".concat(dtype)) ? Lampa.Storage.get("lmetorrentqBittorent".concat(dtype)) : '',
+        "firstLastPiecePrio": Lampa.Storage.field("lmetorrentqBittorentfirstLastPiecePrio") ? "true" : "false",
+        "sequentialDownload": Lampa.Storage.field("lmetorrentqBittorentSequentialDownload") ? "true" : "false"
       };
+      
       return new Promise(function (resolve, reject) {
-        $.ajax(settings).done(function (response) {
+        var requestPromise;
+        if (useGAS) {
+          requestPromise = makeRequestViaGAS(targetUrl, "POST", getHeaders$3("application/x-www-form-urlencoded"), taskData);
+        } else {
+          requestPromise = $.ajax({
+            url: targetUrl,
+            method: "POST",
+            timeout: 0,
+            headers: getHeaders$3("application/x-www-form-urlencoded"),
+            xhrFields: {
+              withCredentials: true
+            },
+            crossDomain: true,
+            data: taskData
+          });
+        }
+        
+        requestPromise.then(function (response) {
           try {
             console.log('TDM', 'Send file:', response);
             resolve(Lampa.Bell.push({
@@ -1133,8 +1238,8 @@
               text: Lampa.Lang.translate('actionReturnedError')
             }));
           }
-        }).fail(function (jqXHR, textStatus, errorThrown) {
-          console.log('TDM', 'Send file:', textStatus, errorThrown, jqXHR);
+        }).catch(function (error) {
+          console.log('TDM', 'Send file:', error);
           reject(Lampa.Bell.push({
             text: Lampa.Lang.translate('actionReturnedError')
           }));
@@ -1146,28 +1251,33 @@
     }
     function _setTags() {
       _setTags = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(torrentId, tags) {
-        var tagValue, url, proxy;
+        var tagValue, url, useGAS, tagsUrl, tagsData;
         return _regenerator().w(function (_context3) {
           while (1) switch (_context3.n) {
             case 0:
               tagValue = Array.isArray(tags) ? tags.join(',') : tags;
               url = getUrl$1();
-              proxy = getProxy$1();
-              var tagsUrl = buildProxyUrl(proxy, "".concat(url, "/api/v2/torrents/addTags"));
-              return _context3.a(2, $.ajax({
-                url: tagsUrl,
-                method: "POST",
-                timeout: 0,
-                headers: getHeaders$3("application/x-www-form-urlencoded"),
-                xhrFields: {
-                  withCredentials: true
-                },
-                crossDomain: true,
-                data: {
-                  hashes: torrentId,
-                  tags: tagValue
-                }
-              }));
+              useGAS = getGASUrl() !== "";
+              tagsUrl = "".concat(url, "/api/v2/torrents/addTags");
+              tagsData = {
+                hashes: torrentId,
+                tags: tagValue
+              };
+              if (useGAS) {
+                return _context3.a(2, makeRequestViaGAS(tagsUrl, "POST", getHeaders$3("application/x-www-form-urlencoded"), tagsData));
+              } else {
+                return _context3.a(2, $.ajax({
+                  url: tagsUrl,
+                  method: "POST",
+                  timeout: 0,
+                  headers: getHeaders$3("application/x-www-form-urlencoded"),
+                  xhrFields: {
+                    withCredentials: true
+                  },
+                  crossDomain: true,
+                  data: tagsData
+                }));
+              }
           }
         }, _callee3);
       }));
@@ -2514,6 +2624,26 @@
       Lampa.SettingsApi.addParam({
         component: manifest.component,
         param: {
+          name: manifest.component + "qBittorentGASUrl",
+          type: "input",
+          placeholder: 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec',
+          values: '',
+          "default": ''
+        },
+        field: {
+          name: "Google Apps Script URL",
+          description: "URL вашего Google Apps Script для обхода CORS ограничений. Оставьте пустым для прямого подключения."
+        },
+        onRender: function onRender(item) {
+          item.show();
+        },
+        onChange: function onChange(item) {
+          Lampa.Settings.update();
+        }
+      });
+      Lampa.SettingsApi.addParam({
+        component: manifest.component,
+        param: {
           name: manifest.component + "qBittorentProxy",
           type: "trigger",
           //доступно select,input,trigger,title,static
@@ -2521,7 +2651,7 @@
         },
         field: {
           name: Lampa.Lang.translate('LMEProxy'),
-          description: Lampa.Lang.translate('LMEProxyDescription')
+          description: "Использовать Google Apps Script для обхода CORS (требуется указать URL выше)"
         },
         onRender: function onRender(item) {
           item.show();
