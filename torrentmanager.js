@@ -716,20 +716,42 @@
           method: "POST",
           timeout: 10000,
           headers: authHeaders,
+          xhrFields: {
+            withCredentials: true
+          },
+          crossDomain: true,
           data: {
             username: username,
             password: password
           }
         }).done(function (response, textStatus, jqXHR) {
+          var allHeaders = jqXHR.getAllResponseHeaders();
           console.log('TDM Auth response:', {
             response: response,
             status: jqXHR.status,
-            allResponseHeaders: jqXHR.getAllResponseHeaders()
+            allResponseHeaders: allHeaders
           });
+          // Проверяем наличие CORS заголовков
+          var corsOrigin = jqXHR.getResponseHeader('Access-Control-Allow-Origin');
+          var corsCredentials = jqXHR.getResponseHeader('Access-Control-Allow-Credentials');
+          var corsExposeHeaders = jqXHR.getResponseHeader('Access-Control-Expose-Headers');
+          console.log('TDM Auth CORS headers:', {
+            'Access-Control-Allow-Origin': corsOrigin,
+            'Access-Control-Allow-Credentials': corsCredentials,
+            'Access-Control-Expose-Headers': corsExposeHeaders
+          });
+          if (!corsOrigin) {
+            console.warn('TDM Auth: CORS заголовки не найдены в ответе! Проверьте настройки Synology Reverse Proxy.');
+          }
+          if (corsCredentials !== 'true') {
+            console.warn('TDM Auth: Access-Control-Allow-Credentials не установлен в true!');
+          }
+          if (!corsExposeHeaders || !corsExposeHeaders.includes('Set-Cookie')) {
+            console.warn('TDM Auth: Access-Control-Expose-Headers не содержит Set-Cookie!');
+          }
           if (response === "Ok.") {
             var useProxy = Lampa.Storage.field("lmetorrentqBittorentProxy") === true;
-            // При использовании прокси cookie могут не работать, но попробуем их получить
-            // Пробуем получить cookie из заголовков ответа (может работать через прокси)
+            // Пробуем получить cookie из заголовков ответа
             var setCookieHeader = jqXHR.getResponseHeader('Set-Cookie');
             console.log('TDM Auth Set-Cookie header:', setCookieHeader);
             if (setCookieHeader) {
@@ -799,7 +821,11 @@
           url: fullUrl,
           method: "GET",
           timeout: 0,
-          headers: getHeaders$3()
+          headers: getHeaders$3(),
+          xhrFields: {
+            withCredentials: true
+          },
+          crossDomain: true
         });
       };
       var processResponse = function processResponse(response) {
@@ -953,6 +979,10 @@
         headers: getHeaders$3()
       };
       return new Promise(function (resolve, reject) {
+        settings.xhrFields = {
+          withCredentials: true
+        };
+        settings.crossDomain = true;
         $.ajax(settings).done(function (response) {
           try {
             var standardizedResponse = {
@@ -995,7 +1025,11 @@
         $.ajax({
           url: versionUrl,
           method: "GET",
-          headers: getHeaders$3()
+          headers: getHeaders$3(),
+          xhrFields: {
+            withCredentials: true
+          },
+          crossDomain: true
         }).then(function (version) {
           var versionNumber = parseFloat(version.replace(/[^\d.]/g, ''));
 
@@ -1013,6 +1047,10 @@
             method: "POST",
             timeout: 0,
             headers: getHeaders$3("application/x-www-form-urlencoded"),
+            xhrFields: {
+              withCredentials: true
+            },
+            crossDomain: true,
             data: {
               "hashes": torrent_data.id,
               deleteFiles: deleteFiles
@@ -1043,6 +1081,10 @@
         method: "POST",
         timeout: 0,
         headers: getHeaders$3("application/x-www-form-urlencoded"),
+        xhrFields: {
+          withCredentials: true
+        },
+        crossDomain: true,
         "data": {
           "tags": labels,
           "urls": selectedTorrent.MagnetUri ? selectedTorrent.MagnetUri : selectedTorrent.Link,
@@ -1090,6 +1132,10 @@
                 method: "POST",
                 timeout: 0,
                 headers: getHeaders$3("application/x-www-form-urlencoded"),
+                xhrFields: {
+                  withCredentials: true
+                },
+                crossDomain: true,
                 data: {
                   hashes: torrentId,
                   tags: tagValue
