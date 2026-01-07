@@ -656,7 +656,13 @@
       // cors-anywhere использует формат: proxy.com/https://target.com/path
       // Убираем завершающий слэш из proxy, если есть
       var proxyBase = proxy.replace(/\/$/, '');
-      return proxyBase + '/' + targetUrl;
+      var finalUrl = proxyBase + '/' + targetUrl;
+      console.log('TDM buildProxyUrl:', {
+        proxy: proxy,
+        targetUrl: targetUrl,
+        finalUrl: finalUrl
+      });
+      return finalUrl;
     }
     function getHeaders$3(type) {
       var headers = {};
@@ -902,6 +908,13 @@
           auth$3().then(function () {
             // После успешного логина делаем запрос
             makeRequest().done(function (response) {
+              // Проверяем, не вернул ли прокси информационное сообщение
+              if (typeof response === 'string' && (response.includes('cors-anywhere') || response.includes('This API enables cross-origin'))) {
+                console.error('TDM GetData: Прокси вернул информационное сообщение в response!');
+                console.error('TDM GetData: URL был:', fullUrl);
+                reject(new Error('Прокси вернул информационное сообщение вместо данных. Проверьте формат URL.'));
+                return;
+              }
               processResponse(response).then(resolve)["catch"](reject);
             }).fail(function (jqXHR, textStatus, errorThrown) {
               handleError(jqXHR, textStatus, errorThrown, resolve, reject);
@@ -911,12 +924,28 @@
           });
         } else {
           makeRequest().done(function (response) {
+            // Проверяем, не вернул ли прокси информационное сообщение
+            if (typeof response === 'string' && (response.includes('cors-anywhere') || response.includes('This API enables cross-origin'))) {
+              console.error('TDM GetData: Прокси вернул информационное сообщение в response!');
+              console.error('TDM GetData: URL был:', fullUrl);
+              reject(new Error('Прокси вернул информационное сообщение вместо данных. Проверьте формат URL.'));
+              return;
+            }
             processResponse(response).then(resolve)["catch"](reject);
           }).fail(function (jqXHR, textStatus, errorThrown) {
             handleError(jqXHR, textStatus, errorThrown, resolve, reject);
           });
         }
         function handleError(jqXHR, textStatus, errorThrown, resolve, reject) {
+          // Проверяем, не вернул ли прокси информационное сообщение
+          if (jqXHR.responseText && (jqXHR.responseText.includes('cors-anywhere') || jqXHR.responseText.includes('This API enables cross-origin'))) {
+            console.error('TDM GetData: Прокси вернул информационное сообщение вместо данных!');
+            console.error('TDM GetData: Это означает, что прокси получил неправильный формат URL');
+            console.error('TDM GetData: URL был:', fullUrl);
+            console.error('TDM GetData: Ответ прокси (первые 500 символов):', jqXHR.responseText.substring(0, 500));
+            reject(new Error('Прокси вернул информационное сообщение. Проверьте формат URL в логах выше.'));
+            return;
+          }
           // Если получили 403, пробуем перелогиниться
           if (jqXHR.status === 403) {
             console.log('TDM GetData: 403 Forbidden, trying to re-authenticate...');
