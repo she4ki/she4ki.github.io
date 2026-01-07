@@ -751,34 +751,7 @@
                 console.log('TDM Auth: Success, cookie from document.cookie saved');
               }
             }
-            // Если через прокси и cookie не получены, сохраняем username/password для повторного логина при каждом запросе
-            if (useProxy && !Lampa.Storage.get("lmetorrentqBittorentKey")) {
-              // Сохраняем флаг, что нужно логиниться при каждом запросе
-              Lampa.Storage.set("lmetorrentqBittorentKey", "PROXY_MODE");
-              console.log('TDM Auth: Success, proxy mode - will re-auth on each request');
-            } else if (!useProxy) {
-              // Без прокси пробуем получить cookie
-              var setCookieHeader = jqXHR.getResponseHeader('Set-Cookie');
-              if (setCookieHeader) {
-                var sidMatch = setCookieHeader.match(/SID=([^;]+)/);
-                if (sidMatch) {
-                  Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidMatch[1]));
-                  console.log('TDM Auth: Success, cookie from Set-Cookie header saved');
-                }
-              }
-              // Также проверяем document.cookie
-              if (!Lampa.Storage.get("lmetorrentqBittorentKey")) {
-                var cookies = document.cookie.split(';');
-                var sidCookie = cookies.find(function (cookie) {
-                  return cookie.trim().startsWith('SID=');
-                });
-                if (sidCookie) {
-                  var sidValue = sidCookie.split('=')[1].trim();
-                  Lampa.Storage.set("lmetorrentqBittorentKey", "SID=".concat(sidValue));
-                  console.log('TDM Auth: Success, cookie from document.cookie saved');
-                }
-              }
-            }
+            // Разрешаем промис сразу, проверка cookie произойдет в setTimeout
             resolve(true);
           } else {
             console.error('TDM Auth error:', response);
