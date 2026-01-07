@@ -636,10 +636,20 @@
       return _getPosterFromLabels.apply(this, arguments);
     }
 
-    var url$1 = Lampa.Storage.field("lmetorrentqBittorentUrl");
-    var proxy$1 = "";
-    if (Lampa.Storage.field("lmetorrentqBittorentProxy") === true) {
-      proxy$1 = 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/';
+    function getUrl$1() {
+      var url = Lampa.Storage.field("lmetorrentqBittorentUrl");
+      if (!url) {
+        throw new Error("URL qBittorrent не настроен. Пожалуйста, укажите адрес сервера в настройках.");
+      }
+      // Убираем завершающий слэш, если есть
+      url = url.replace(/\/$/, '');
+      return url;
+    }
+    function getProxy$1() {
+      if (Lampa.Storage.field("lmetorrentqBittorentProxy") === true) {
+        return 'https://p01--corsproxy--h7ynqrkjrc6c.code.run/';
+      }
+      return "";
     }
     function getHeaders$3(type) {
       var headers = {};
@@ -650,8 +660,12 @@
     }
     function auth$3() {}
     function GetData$3() {
+      var url = getUrl$1();
+      var proxy = getProxy$1();
+      var fullUrl = "".concat(proxy).concat(url, "/api/v2/sync/maindata");
+      console.log('TDM GetData URL:', fullUrl);
       var settings = {
-        url: "".concat(proxy$1).concat(url$1, "/api/v2/sync/maindata"),
+        url: fullUrl,
         method: "GET",
         timeout: 0,
         headers: getHeaders$3()
@@ -724,13 +738,29 @@
             return _ref.apply(this, arguments);
           };
         }()).fail(function (jqXHR, textStatus, errorThrown) {
-          reject(new Error("\u041E\u0448\u0438\u0431\u043A\u0430 AJAX \u0437\u0430\u043F\u0440\u043E\u0441\u0430: ".concat(textStatus, " - ").concat(errorThrown)));
+          var errorMsg = "Ошибка подключения к qBittorrent: ".concat(textStatus);
+          if (jqXHR.status) {
+            errorMsg += " (HTTP ".concat(jqXHR.status, ")");
+          }
+          if (jqXHR.responseText) {
+            errorMsg += " - ".concat(jqXHR.responseText.substring(0, 100));
+          }
+          console.error('TDM GetData error:', {
+            status: jqXHR.status,
+            statusText: textStatus,
+            error: errorThrown,
+            responseText: jqXHR.responseText,
+            url: settings.url
+          });
+          reject(new Error(errorMsg));
         });
       });
     }
     function GetInfo$3() {
+      var url = getUrl$1();
+      var proxy = getProxy$1();
       var settings = {
-        url: "".concat(proxy$1).concat(url$1, "/api/v2/sync/maindata"),
+        url: "".concat(proxy).concat(url, "/api/v2/sync/maindata"),
         method: "GET",
         timeout: 0,
         headers: getHeaders$3()
@@ -746,15 +776,27 @@
             reject(new Error('Ошибка при обработке данных'));
           }
         }).fail(function (jqXHR, textStatus, errorThrown) {
-          reject(new Error("\u041E\u0448\u0438\u0431\u043A\u0430 AJAX \u0437\u0430\u043F\u0440\u043E\u0441\u0430: ".concat(textStatus, " - ").concat(errorThrown)));
+          var errorMsg = "Ошибка подключения к qBittorrent: ".concat(textStatus);
+          if (jqXHR.status) {
+            errorMsg += " (HTTP ".concat(jqXHR.status, ")");
+          }
+          console.error('TDM GetInfo error:', {
+            status: jqXHR.status,
+            statusText: textStatus,
+            error: errorThrown,
+            url: settings.url
+          });
+          reject(new Error(errorMsg));
         });
       });
     }
     function SendCommand$3(btn, torrent_data) {
       return new Promise(function (resolve, reject) {
+        var url = getUrl$1();
+        var proxy = getProxy$1();
         // First check qBittorrent version
         $.ajax({
-          url: "".concat(proxy$1).concat(url$1, "/api/v2/app/version"),
+          url: "".concat(proxy).concat(url, "/api/v2/app/version"),
           method: "GET",
           headers: getHeaders$3()
         }).then(function (version) {
@@ -769,7 +811,7 @@
           // Then send the command
           var deleteFiles = btn.deleteFiles ? "true" : "";
           return $.ajax({
-            url: "".concat(proxy$1).concat(url$1, "/api/v2/torrents/").concat(btn.action),
+            url: "".concat(proxy).concat(url, "/api/v2/torrents/").concat(btn.action),
             method: "POST",
             timeout: 0,
             headers: getHeaders$3("application/x-www-form-urlencoded"),
@@ -794,8 +836,10 @@
       if (!selectedTorrent) {
         return;
       }
+      var url = getUrl$1();
+      var proxy = getProxy$1();
       var settings = {
-        url: "".concat(proxy$1).concat(url$1, "/api/v2/torrents/add"),
+        url: "".concat(proxy).concat(url, "/api/v2/torrents/add"),
         method: "POST",
         timeout: 0,
         headers: getHeaders$3("application/x-www-form-urlencoded"),
@@ -833,13 +877,15 @@
     }
     function _setTags() {
       _setTags = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(torrentId, tags) {
-        var tagValue;
+        var tagValue, url, proxy;
         return _regenerator().w(function (_context3) {
           while (1) switch (_context3.n) {
             case 0:
               tagValue = Array.isArray(tags) ? tags.join(',') : tags;
+              url = getUrl$1();
+              proxy = getProxy$1();
               return _context3.a(2, $.ajax({
-                url: "".concat(proxy$1).concat(url$1, "/api/v2/torrents/addTags"),
+                url: "".concat(proxy).concat(url, "/api/v2/torrents/addTags"),
                 method: "POST",
                 timeout: 0,
                 headers: getHeaders$3("application/x-www-form-urlencoded"),
@@ -1758,6 +1804,17 @@
                 _context3.p = 2;
                 _t3 = _context3.v;
                 console.error('TDM', 'Error fetching client data:', _t3);
+                var errorMsg = _t3 && _t3.message ? _t3.message : String(_t3);
+                if (errorMsg.includes('URL qBittorrent не настроен')) {
+                  Lampa.Bell.push({
+                    text: 'URL qBittorrent не настроен. Пожалуйста, укажите адрес сервера в настройках.'
+                  });
+                } else {
+                  Lampa.Bell.push({
+                    text: 'Ошибка подключения к qBittorrent: ' + errorMsg
+                  });
+                }
+                throw _t3;
                 throw _t3;
               case 3:
                 return _context3.a(2);
