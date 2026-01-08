@@ -2667,6 +2667,8 @@
                 return item.labels && item.labels.includes(searchLabel);
               });
             }
+            // Получаем имя клиента из настроек
+            var client = Lampa.Storage.field('lmetorrentSelect') || 'qbittorent';
             startClient(client).then(function (r) {
               if (r && r.data) {
                 var torrent = findTorrent(r.data, e.object.method, e.object.id);
