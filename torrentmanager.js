@@ -1,27 +1,18 @@
-export default class QBPlugin {
-  constructor() {
-    // URL вашего HTTPS proxy
-    this.apiUrl = 'https://torproxy.struvehome.com/torrents';
+// Создаём глобальный объект
+window.qbPlugin = {
+  apiUrl: 'https://torp.struvehome.com/torrents',
 
-    // Название и иконка для шапки Lampa
-    this.name = 'qBittorrent';
-    this.icon = 'icon.png';
-  }
-
-  // Метод для запроса списка торрентов
-  async getTorrents() {
+  getTorrents: async function() {
     try {
       const res = await fetch(this.apiUrl);
-      const data = await res.json();
-      return data;
+      return await res.json();
     } catch (e) {
       console.error('Failed to fetch torrents:', e);
       return [];
     }
-  }
+  },
 
-  // Метод для отображения UI
-  async renderUI() {
+  renderUI: async function() {
     const torrents = await this.getTorrents();
     const container = document.createElement('div');
     container.style.padding = '10px';
@@ -29,7 +20,7 @@ export default class QBPlugin {
     container.style.color = '#fff';
     container.style.fontFamily = 'sans-serif';
 
-    if (torrents.length === 0) {
+    if (!torrents || torrents.length === 0) {
       container.innerText = 'Нет торрентов или ошибка подключения';
     } else {
       const list = document.createElement('ul');
@@ -41,15 +32,13 @@ export default class QBPlugin {
       container.appendChild(list);
     }
 
-    // Добавляем в body
-    document.body.innerHTML = ''; // очищаем
+    document.body.innerHTML = '';
     document.body.appendChild(container);
-  }
+  },
 
-  // Метод для интеграции кнопки в шапку
-  initHeaderButton() {
+  initHeaderButton: function() {
     const btn = document.createElement('button');
-    btn.innerText = this.name;
+    btn.innerText = 'qBittorrent';
     btn.style.padding = '6px 12px';
     btn.style.margin = '4px';
     btn.style.background = '#ff5722';
@@ -59,17 +48,14 @@ export default class QBPlugin {
     btn.style.cursor = 'pointer';
     btn.onclick = () => this.renderUI();
 
-    // Добавляем в шапку (header)
     const header = document.querySelector('header') || document.body;
     header.appendChild(btn);
-  }
+  },
 
-  // Инициализация плагина
-  init() {
+  init: function() {
     this.initHeaderButton();
   }
-}
+};
 
-// Автоматический запуск
-window.qbPlugin = new QBPlugin();
+// Автозапуск
 window.qbPlugin.init();
