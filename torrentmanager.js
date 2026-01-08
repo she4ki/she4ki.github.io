@@ -797,14 +797,24 @@
               while (1) switch (_context2.n) {
                 case 0:
                   _context2.p = 0;
-                  if (response.torrents) {
+                  console.log('TDM processResponse: response type =', typeof response);
+                  console.log('TDM processResponse: response keys =', response ? Object.keys(response) : 'null');
+                  console.log('TDM processResponse: has torrents =', response && response.torrents !== undefined);
+                  if (response && response.torrents) {
+                    var torrentsCount = Object.keys(response.torrents).length;
+                    console.log('TDM processResponse: torrents count =', torrentsCount);
                     _context2.n = 1;
                     break;
                   }
+                  console.log('TDM processResponse: No torrents found, returning empty array');
                   resolve([]);
                   return _context2.a(2);
                 case 1:
                   torrents = Object.values(response.torrents);
+                  console.log('TDM processResponse: Processing', torrents.length, 'torrents');
+                  if (torrents.length > 0) {
+                    console.log('TDM processResponse: First torrent keys =', Object.keys(torrents[0]));
+                  }
                   _context2.n = 2;
                   return Promise.all(torrents.map(/*#__PURE__*/function () {
                     var _ref2 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(torrent) {
@@ -813,15 +823,17 @@
                         while (1) switch (_context.n) {
                           case 0:
                             _t = torrent.name;
-                            _t2 = torrent.infohash_v1;
+                            // Поддержка как infohash_v1, так и hash
+                            _t2 = torrent.infohash_v1 || torrent.hash || torrent.infohash;
                             _t3 = torrent.size;
-                            _t4 = torrent.state.charAt(0).toUpperCase() + torrent.state.slice(1);
+                            // Безопасная обработка state
+                            _t4 = torrent.state ? torrent.state.charAt(0).toUpperCase() + torrent.state.slice(1) : 'Unknown';
                             _t5 = torrent.tags;
                             _context.n = 1;
                             return getPosterFromLabels(torrent.tags);
                           case 1:
                             _t6 = _context.v;
-                            _t7 = torrent.progress;
+                            _t7 = torrent.progress || 0;
                             return _context.a(2, {
                               name: _t,
                               id: _t2,
