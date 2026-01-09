@@ -8,11 +8,11 @@
       Lampa.Lang.add({
         actionSentSuccessfully: {
           "en": "Action sent successfully",
-          "ru": "Действие успешно отправлено"
+          "ru": "Фильм отправлен на скачивание"
         },
         actionReturnedError: {
           en: "Action returned an error",
-          ru: "Действие вернуло ошибку"
+          ru: "Ошибка при отправке фильма на закачку"
         }
       });
     }
@@ -210,6 +210,10 @@
         }).then(function (response) {
           try {
             console.log('TDM', 'Send file:', response);
+            
+            // Уведомляем Telegram бота о запуске проверки
+            notifyTelegramBot();
+            
             resolve(Lampa.Bell.push({
               text: Lampa.Lang.translate('actionSentSuccessfully')
             }));
@@ -227,6 +231,9 @@
             auth().then(function() {
               return makeRequestViaProxy(targetUrl, "POST", getHeaders("application/x-www-form-urlencoded"), taskData);
             }).then(function (response) {
+              // Уведомляем Telegram бота о запуске проверки
+              notifyTelegramBot();
+              
               resolve(Lampa.Bell.push({
                 text: Lampa.Lang.translate('actionSentSuccessfully')
               }));
@@ -242,6 +249,37 @@
           }
         });
       });
+    }
+
+    /**
+     * Уведомить Telegram бота о запуске проверки
+     */
+    function notifyTelegramBot() {
+      try {
+        var proxyUrl = getProxyServerUrl();
+        $.ajax({
+          url: proxyUrl + '/notify-bot',
+          method: "POST",
+          timeout: 5000,
+          headers: {
+            "Content-Type": "application/json"
+          },
+          data: JSON.stringify({}),
+          dataType: "json"
+        }).done(function(response) {
+          if (response.success) {
+            console.log('TDM', 'Bot notified successfully');
+          } else {
+            console.warn('TDM', 'Failed to notify bot:', response.error);
+          }
+        }).fail(function(jqXHR, textStatus, errorThrown) {
+          // Не критичная ошибка, просто логируем
+          console.warn('TDM', 'Failed to notify bot:', textStatus);
+        });
+      } catch (e) {
+        // Не критичная ошибка, просто логируем
+        console.warn('TDM', 'Error notifying bot:', e);
+      }
     }
 
     /**
