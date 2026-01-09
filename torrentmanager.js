@@ -787,7 +787,11 @@
       
       var makeRequest = function makeRequest() {
         // Используем backend прокси-сервер
-        return makeRequestViaProxy(targetUrl, "GET", getHeaders$3(), null);
+        return makeRequestViaProxy(targetUrl, "GET", getHeaders$3(), null).then(function (response) {
+          console.log('TDM GetData: makeRequest response type =', typeof response);
+          console.log('TDM GetData: makeRequest response keys =', response ? Object.keys(response) : 'null');
+          return response;
+        });
       };
       var processResponse = function processResponse(response) {
         return new Promise(function (resolve, reject) {
@@ -816,25 +820,32 @@
                     console.log('TDM processResponse: First torrent keys =', Object.keys(torrents[0]));
                   }
                   _context2.n = 2;
-                  return Promise.all(torrents.map(/*#__PURE__*/function () {
+                  // Используем Promise.allSettled вместо Promise.all, чтобы ошибки в одном торренте не блокировали остальные
+                  return Promise.allSettled(torrents.map(/*#__PURE__*/function () {
                     var _ref2 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(torrent) {
                       var _t, _t2, _t3, _t4, _t5, _t6, _t7;
                       return _regenerator().w(function (_context) {
                         while (1) switch (_context.n) {
                           case 0:
-                            _t = torrent.name;
-                            // Поддержка как infohash_v1, так и hash
-                            _t2 = torrent.infohash_v1 || torrent.hash || torrent.infohash;
-                            _t3 = torrent.size;
-                            // Безопасная обработка state
-                            _t4 = torrent.state ? torrent.state.charAt(0).toUpperCase() + torrent.state.slice(1) : 'Unknown';
-                            _t5 = torrent.tags;
-                            _context.n = 1;
-                            return getPosterFromLabels(torrent.tags);
+                            try {
+                              _t = torrent.name;
+                              // Поддержка как infohash_v1, так и hash
+                              _t2 = torrent.infohash_v1 || torrent.hash || torrent.infohash;
+                              _t3 = torrent.size;
+                              // Безопасная обработка state
+                              _t4 = torrent.state ? torrent.state.charAt(0).toUpperCase() + torrent.state.slice(1) : 'Unknown';
+                              _t5 = torrent.tags;
+                              console.log('TDM processing torrent:', _t, 'hash:', _t2, 'state:', _t4);
+                              _context.n = 1;
+                              return getPosterFromLabels(torrent.tags);
+                            } catch (err) {
+                              console.error('TDM error processing torrent:', err, torrent);
+                              throw err;
+                            }
                           case 1:
                             _t6 = _context.v;
                             _t7 = torrent.progress || 0;
-                            return _context.a(2, {
+                            var result = {
                               name: _t,
                               id: _t2,
                               size: _t3,
@@ -842,24 +853,47 @@
                               labels: _t5,
                               image: _t6,
                               completed: _t7
-                            });
+                            };
+                            console.log('TDM processed torrent result:', result);
+                            return _context.a(2, result);
                         }
                       }, _callee);
                     }));
                     return function (_x2) {
                       return _ref2.apply(this, arguments);
                     };
-                  }()));
+                  }())).then(function (results) {
+                    // Фильтруем успешные результаты и обрабатываем ошибки
+                    var successful = results.filter(function (r) {
+                      return r.status === 'fulfilled';
+                    }).map(function (r) {
+                      return r.value;
+                    });
+                    var failed = results.filter(function (r) {
+                      return r.status === 'rejected';
+                    });
+                    if (failed.length > 0) {
+                      console.warn('TDM processResponse: Failed to process', failed.length, 'torrents:', failed.map(function (r) {
+                        return r.reason;
+                      }));
+                    }
+                    return successful;
+                  });
                 case 2:
                   standardizedResponse = _context2.v;
+                  console.log('TDM processResponse: Standardized response count =', standardizedResponse ? standardizedResponse.length : 0);
+                  if (standardizedResponse && standardizedResponse.length > 0) {
+                    console.log('TDM processResponse: First standardized torrent =', standardizedResponse[0]);
+                  }
                   resolve(standardizedResponse);
                   _context2.n = 4;
                   break;
                 case 3:
                   _context2.p = 3;
                   _t8 = _context2.v;
-                  console.log('TDM', 'GetData:', _t8, response);
-                  reject(new Error('Ошибка при обработке данных'));
+                  console.error('TDM processResponse ERROR:', _t8);
+                  console.log('TDM', 'GetData error details:', _t8, response);
+                  reject(new Error('Ошибка при обработке данных: ' + (_t8.message || _t8)));
                 case 4:
                   return _context2.a(2);
               }
@@ -3237,9 +3271,9 @@
         // Register plugin in manifest
         Lampa.Manifest.plugins = MANIFEST;
 
-        // Add menu button
+        // Add menu button - REMOVED
         torrentInfo();
-        $('.menu .menu__list').eq(0).append(createMenuButton());
+        // $('.menu .menu__list').eq(0).append(createMenuButton());
 
         // Add CSS styles
         $('body').append(Lampa.Template.get('lmemStyle', {}, true));
@@ -3253,8 +3287,8 @@
         // Initialize client authentication
         initializeClientAuth();
 
-        // Initialize new header feature
-        var iconController = DomInjector$1.inject();
+        // Initialize new header feature - REMOVED
+        // var iconController = DomInjector$1.inject();
         TorrentStateManager$1.start();
       } catch (error) {
         console.error('TDM', 'Error initializing Torrent Manager plugin:', error);
